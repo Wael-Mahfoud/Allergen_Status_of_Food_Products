@@ -5,21 +5,19 @@ import pandas as pd
 import numpy as np
 import joblib
 import traceback
+import os
 
-# تحميل النماذج والملفات
+# تحميل النماذج
 binary_model = joblib.load("binary_allergen_model.pkl")
 multi_label_model = joblib.load("multilabel_allergen_model.pkl")
 encoder = joblib.load("preprocessor.pkl")
 allergen_list = joblib.load("allergen_list.pkl")
 
-# تعريف الأعمدة
 categorical_cols = ['Food Product', 'Main Ingredient', 'Sweetener', 'Fat/Oil', 'Seasoning']
-numerical_cols = ['Is_Allergen']  # في حالة الاستخدام لاحقًا
 
-# إنشاء تطبيق FastAPI
+# FastAPI app
 app = FastAPI(title="Allergen Detection API")
 
-# تعريف نموذج البيانات
 class FoodInput(BaseModel):
     Food_Product: str
     Main_Ingredient: str
@@ -27,10 +25,9 @@ class FoodInput(BaseModel):
     Fat_Oil: str
     Seasoning: str
 
-# الدالة المسؤولة عن المعالجة والتنبؤ
+# Prediction logic
 def process_and_predict(input_data: FoodInput):
     try:
-        # تحويل البيانات إلى DataFrame
         input_dict = {
             'Food Product': input_data.Food_Product,
             'Main Ingredient': input_data.Main_Ingredient,
@@ -39,11 +36,8 @@ def process_and_predict(input_data: FoodInput):
             'Seasoning': input_data.Seasoning
         }
         df = pd.DataFrame([input_dict])
-
-        # تطبيق OneHotEncoder
         cat_encoded = encoder.transform(df[categorical_cols]).toarray()
 
-        # التنبؤ بوجود حساسية
         has_allergen = binary_model.predict(cat_encoded)[0]
         if has_allergen == 0:
             return {
@@ -52,7 +46,6 @@ def process_and_predict(input_data: FoodInput):
                 "message": "No allergens detected."
             }
 
-        # التنبؤ بأنواع مسببات الحساسية
         multi_preds = multi_label_model.predict(cat_encoded)[0]
         detected = [a for a, present in zip(allergen_list, multi_preds) if present]
 
@@ -68,10 +61,15 @@ def process_and_predict(input_data: FoodInput):
             "traceback": traceback.format_exc()
         }
 
-# نقطة النهاية للتنبؤ
 @app.post("/predict")
 def predict_allergens(input_data: FoodInput):
     result = process_and_predict(input_data)
     if "error" in result:
         return JSONResponse(status_code=500, content=result)
     return result
+
+# لتشغيل FastAPI محلياً أو على Render
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
